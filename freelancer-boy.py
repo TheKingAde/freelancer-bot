@@ -8,12 +8,12 @@ load_dotenv()
 
 # Read the OAuth token from environment
 token = os.getenv("PRODUCTION")
-url = os.getenv("PRODUCTION_URL")
+base_url = os.getenv("PRODUCTION_URL")
 
 # Create session
 session = Session(
     oauth_token=token,
-    url="https://www.freelancer-sandbox.com"
+    url=base_url
 )
 
 # Access the /me endpoint
