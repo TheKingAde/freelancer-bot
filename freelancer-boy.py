@@ -1,16 +1,24 @@
 from freelancersdk.session import Session
-from freelancersdk.resources.users import users
+from freelancersdk.resources.users import get_self
+from dotenv import load_dotenv
+import os
 
-# Use the correct base URL and token
+# Load environment variables from .env
+load_dotenv()
+
+# Read the OAuth token from environment
+token = os.getenv("PRODUCTION")
+url = os.getenv("PRODUCTION_URL")
+
+# Create session
 session = Session(
-    oauth_token="TXQ01QFD1eDKrvj8qziddtCiCpGLIj",
-    url="https://www.freelancer-sandbox.com"  # or https://www.freelancer.com
+    oauth_token=token,
+    url="https://www.freelancer-sandbox.com"
 )
 
 # Access the /me endpoint
-user = users(session)
-response = user.get_self()
+response = get_self(session)
 
 # Get just the user account object
-user_account = response.json().get("result", {})
+user_account = response
 print(user_account)
