@@ -1,13 +1,17 @@
 import os
 import requests
 from dotenv import load_dotenv
+import json
 
 # Load token from .env file
 load_dotenv()
 token = os.getenv("PRODUCTION")
 
+params = {
+    "bids": True
+}
 # API endpoint
-url = "https://www.freelancer.com/api/projects/0.1/currencies/"
+url = "https://www.freelancer.com/api/users/0.1/self/"
 
 # Headers
 headers = {
@@ -15,21 +19,8 @@ headers = {
 }
 
 # Make request
-response = requests.get(url, headers=headers)
+response = requests.get(url, headers=headers, params=params)
 data = response.json()
 
-# Check for success
-currencies = data.get("result", {}).get("currencies", [])
+print(json.dumps(data, indent=2))
 
-# Prepare output
-lines = []
-for currency in currencies:
-    line = f"{currency['id']}={currency['code']}"
-    print(line)
-    lines.append(line)
-
-# Save to txt file
-with open("currencies.txt", "w", encoding="utf-8") as f:
-    f.write("\n".join(lines))
-
-print("\n✅ Saved to currencies.txt")
