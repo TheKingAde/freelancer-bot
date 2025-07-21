@@ -8,6 +8,13 @@ from datetime import datetime, timezone
 import g4f
 from g4f.Provider import Yqcloud, Blackbox, PollinationsAI, OIVSCodeSer2, WeWordle
 import time
+import sqlite3
+import sys
+from freelancersdk.resources.projects.exceptions import \
+    ProjectsNotFoundException
+from freelancersdk.resources.projects.helpers import (
+    create_search_projects_filter,
+)
 
 # Load environment variables
 load_dotenv()
@@ -19,16 +26,13 @@ project_number = os.getenv("PROJECT_NUMBER")
 memory_file = os.getenv("MEMORY_FILE")
 session = Session(oauth_token=token, url=base_url)
 
-        
-job_ids = [1097,2334,3111,2623,2323,1384,1051,2380,1041,
-           2920,2918,2916,2068,95,113,148,1094,1824]
-
-filters = { "jobs": job_ids }
+search_filter = create_search_projects_filter(
+        jobs=[1824,2623,2323,3111]
+    )
 
 project_detail = {
     "full_description": True,
-    "job_details": True,
-    "user_financial_details": True
+    "job_details": True
 }
 
 # Providers and models
@@ -39,6 +43,26 @@ ai_chats = [
     {"provider": OIVSCodeSer2, "model": "gpt-4o-mini", "label": "OIVSCodeSer2 - gpt-4o-mini"},
     {"provider": WeWordle, "model": "gpt-4", "label": "WeWordle - GPT-4"},
 ]
+
+# Initialize database
+conn = sqlite3.connect("bidded_projects.db")
+c = conn.cursor()
+c.execute("""
+    CREATE TABLE IF NOT EXISTS keys (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id TEXT UNIQUE
+    )
+""")
+conn.commit()
+
+def project_id_exists(project_id):
+    c.execute("SELECT 1 FROM keys WHERE project_id = ?", (project_id,))
+    return c.fetchone() is not None
+
+def store_project_keys(project_id):
+    c.execute("INSERT INTO keys (project_id) VALUES (?)", 
+            (project_id,))
+    conn.commit()
 
 def send_ai_request(prompt):
     for ai_chat in ai_chats:
@@ -57,48 +81,33 @@ def send_ai_request(prompt):
                 return response # Stop once a valid response is received
         except Exception as e:
             return None
-        time.sleep(10)  # Avoid hitting rate limits
-
-def load_memory():
-    if not os.path.exists(memory_file):
-        return set()
-    with open(memory_file, "r") as f:
-        return set(line.strip() for line in f if line.strip())
-
-def update_memory(project_id):
-    with open(memory_file, "a") as f:
-        f.write(f"{project_id}\n")
+        time.sleep(10)  # Avoid hitting rate limit
 
 response = get_self(session=session)
-
-user_id_flag = True
+user_id = response.get("id")
+username = response.get("username")
+print("Starting FCOM Account Assistant...")
+print(f"Username={username}")
+print(f"UserID={user_id}")
+print("running...")
 while True:
     try:
-        if user_id_flag:
-            response = get_self(session=session)
-            for user_info in response.get("results", []):
-                user_id = user_info.get("id")
-                username = user_info.get("username")
-                print("Starting FCOM Account Assistant...")
-                print(f"Username={username}")
-                print(f"UserID={user_id}")
-                print(json.dump(response, indent=2))
-                user_id_flag = False
-
         response = search_projects(
             session=session,
             query=None,
-            search_filter=filters,
+            search_filter=search_filter,
             project_details=project_detail,
             limit=project_number,
             offset=0,
             active_only=True
         )
-        
+        print(json.dump(response, indent=2))
+        break
         for project in response.get("projects", []):
             # Extract project info
             title = project.get("title", "")
             description = project.get("description", "")
+            print(description)
 
             data = {
                 "id": project.get("id"),
@@ -129,45 +138,45 @@ while True:
             min_duration = data.get("min_period")
             max_duration = data.get("max_period")
 
-            print(f"budget_min: {budget_min}, budget_max: {budget_max}, bid_avg: {bid_avg}, min_bid: {min_bid}, max_bid: {max_bid}, min_duration: {min_duration}, max_duration: {max_duration}")
-            break
-            # Load already bidded project IDs
-    #         processed_ids = load_memory()
-    #         if str(data["id"]) in processed_ids:
-    #             print(f"duplicate id, skipping project with id {data['id']}")
-    #             continue
+            # print(f"budget_min: {budget_min}, budget_max: {budget_max}, bid_avg: {bid_avg}, min_bid: {min_bid}, max_bid: {max_bid}, min_duration: {min_duration}, max_duration: {max_duration}")
+            # break
+            if project_id_exists(str(data["id"])):
+                print(f"duplicate id, skipping project with id {data['id']}")
+                continue
 
-    #         # AI prompt
-    #         prompt = f"""
-    #             Write a freelance job proposal message for the project below:
+            # AI prompt
+            prompt = f"""
+                Write a freelance job proposal message for the project below:
 
-    #             project = [
-    #                 Title: {data['title']}
+                project = [
+                    Title: {data['title']}
 
-    #                 Description: {data['description']}
-    #             ]
+                    Description: {data['description']}
+                ]
 
-    #             The message should:
-    #             - Be between 100 and 1000 characters
-    #             - Sound friendly and human
-    #             - Start with "Hello," then a new line, Don't use Dear [Client] or Don't use Hello [Client]
-    #             - use the word "I" only when needed so it sound like it is typed by a human freelancer applying for a job
-    #             - Don't list anything, write everything in paragraph form
-    #             - Include a brief high-level summary of how I would approach the project
-    #             - Mention possible solutions where relevant (but avoid technical detail)
-    #             - Don't use exclamation marks, emojis or Best regards [Your Name]
-    #             - use Thanks at the end
-    #             """
+                The message should:
+                - Be between 100 and 1000 characters
+                - Sound friendly and human
+                - Start with "Hello," then a new line, Don't use Dear [Client] or Don't use Hello [Client]
+                - use the word "I" only when needed so it sound like it is typed by a human freelancer applying for a job
+                - Don't list anything, write everything in paragraph form
+                - Include a brief high-level summary of how I would approach the project
+                - Mention possible solutions where relevant (but avoid technical detail)
+                - Don't use exclamation marks, emojis or Best regards [Your Name]
+                - use Thanks at the end
+                """
             
-    #         proposal = send_ai_request(prompt)
-    #         if proposal:
-    #             print(f"Project ID: {data['id']}")
-    #             print(f"Proposal:\n{proposal}\n")
-    #             response = place_project_bid(session=session, project_id=data["id"], description=proposal, amount=data["bid_avg"], bid_period=7, )
-    #             update_memory(data["id"])
-    #         else:
-    #             print(f"Failed to generate proposal for Project ID: {data['id']}")
-    #         time.sleep(5)    
+            proposal = send_ai_request(prompt)
+            if proposal:
+                print(f"Project ID: {data['id']}")
+                print(f"Proposal:\n{proposal}\n")
+                response = place_project_bid(session=session, project_id=data["id"], description=proposal, amount=data["bid_avg"], bid_period=7, )
+                if response:
+                    print(f"Bid placed successfully for Project ID: {data['id']}")
+                    store_project_keys(str(data['id']))
+            else:
+                print(f"Failed to generate proposal for Project ID: {data['id']}")
+            time.sleep(5)    
         
     except Exception as e:
         print(f"Error processing projects: {e}")
