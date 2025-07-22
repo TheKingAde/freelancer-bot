@@ -247,10 +247,9 @@ try:
                 if proposal:
                     # budget_min_usd = budget_min * currency_exchange_rate
                     # budget_max_usd = budget_max * currency_exchange_rate
-                    bid_avg_usd = bid_avg * currency_exchange_rate
-                    amount_usd = round(bid_avg_usd * bid_avg_percent)
-                    amount = amount_usd / currency_exchange_rate
-                    
+                    # bid_avg_usd = bid_avg * currency_exchange_rate
+                    # amount_usd = round(bid_avg_usd * bid_avg_percent)
+                    amount = budget_min
                     bid_data = {
                         'project_id': int(data["id"]),
                         'bidder_id': user_id,
