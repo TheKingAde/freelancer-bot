@@ -31,6 +31,7 @@ look_back_hours = int(os.getenv("LOOK_BACK_HOURS", 1))
 exhaustion_sleep_time = int(os.getenv("BID_EXHAUSTED_SLEEP_TIME", 1))
 telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
 telegram_chatid = os.getenv("TELEGRAM_CHATID")
+bid_avg_percent = os.getenv("BID_AVERAGE_DISCOUNT_PERCENT", 1)
 session = Session(oauth_token=token, url=base_url)
 
 id_flag=True
@@ -247,7 +248,7 @@ try:
                     # budget_min_usd = budget_min * currency_exchange_rate
                     # budget_max_usd = budget_max * currency_exchange_rate
                     bid_avg_usd = bid_avg * currency_exchange_rate
-                    amount_usd = round(bid_avg_usd * 0.9)
+                    amount_usd = round(bid_avg_usd * bid_avg_percent)
                     amount = amount_usd / currency_exchange_rate
                     
                     bid_data = {
