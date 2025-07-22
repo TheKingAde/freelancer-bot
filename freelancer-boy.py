@@ -4,7 +4,7 @@ from freelancersdk.resources.users import get_self
 from dotenv import load_dotenv
 import os
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import g4f
 from g4f.Provider import Yqcloud, Blackbox, PollinationsAI, OIVSCodeSer2, WeWordle
 import time
@@ -15,6 +15,7 @@ from freelancersdk.resources.projects.exceptions import \
 from freelancersdk.resources.projects.helpers import (
     create_search_projects_filter,
 )
+from freelancersdk.exceptions import BidNotPlacedException
 
 # Load environment variables
 load_dotenv()
@@ -24,10 +25,14 @@ token = os.getenv("PRODUCTION")
 base_url = os.getenv("PRODUCTION_URL")
 project_number = os.getenv("PROJECT_NUMBER")
 memory_file = os.getenv("MEMORY_FILE")
+look_back_hours = int(os.getenv("LOOK_BACK_HOURS", 1))
+min_bid_amount_usd = int(os.getenv("MIN_BID_AMOUNT_USD", 15))
 session = Session(oauth_token=token, url=base_url)
 
+
+sleep_time = 3
 search_filter = create_search_projects_filter(
-        jobs=[1824,2623,2323,3111]
+        jobs=[1384,2623,148,2323,3111,1824]
     )
 
 project_detail = {
@@ -66,6 +71,7 @@ def store_project_keys(project_id):
 
 def send_ai_request(prompt):
     for ai_chat in ai_chats:
+        time.sleep(sleep_time)
         try:
             # print(f"--- Trying {ai_chat['label']} ---")
             kwargs = {
@@ -81,7 +87,6 @@ def send_ai_request(prompt):
                 return response # Stop once a valid response is received
         except Exception as e:
             return None
-        time.sleep(10)  # Avoid hitting rate limit
 
 response = get_self(session=session)
 user_id = response.get("id")
@@ -101,20 +106,13 @@ while True:
             offset=0,
             active_only=True
         )
-        print(json.dump(response, indent=2))
-        break
         for project in response.get("projects", []):
-            # Extract project info
-            title = project.get("title", "")
-            description = project.get("description", "")
-            print(description)
-
             data = {
                 "id": project.get("id"),
-                "title": title,
+                "title": project.get("title"),
                 "status": project.get("status"),
                 "currency_exchange_rate": project.get("currency", {}).get("exchange_rate"),
-                "description": description,
+                "description": project.get("description"),
                 "submit_date": datetime.fromtimestamp(project.get("submitdate", 0), tz=timezone.utc).isoformat(),
                 "nonpublic": project.get("nonpublic"),
                 "budget_min": project.get("budget", {}).get("minimum"),
@@ -122,26 +120,31 @@ while True:
                 "urgent": project.get("urgent"),
                 "bid_count": project.get("bid_stats", {}).get("bid_count"),
                 "bid_avg": project.get("bid_stats", {}).get("bid_avg"),
-                "min_amount": project.get("bid_stats", {}).get("min_amount"),
-                "max_amount": project.get("bid_stats", {}).get("max_amount"),
-                "min_period": project.get("bid_stats", {}).get("min_period"),
-                "max_period": project.get("bid_stats", {}).get("max_period"),
                 "time_submitted": datetime.fromtimestamp(project.get("time_submitted", 0), tz=timezone.utc).isoformat(),
                 "time_updated": datetime.fromtimestamp(project.get("time_updated", 0), tz=timezone.utc).isoformat()
             }
-
-            budget_min = data.get("budget_min")
-            budget_max = data.get("budget_max")
-            bid_avg = data.get("bid_avg")
-            min_bid = data.get("min_amount")
-            max_bid = data.get("max_amount")
-            min_duration = data.get("min_period")
-            max_duration = data.get("max_period")
-
-            # print(f"budget_min: {budget_min}, budget_max: {budget_max}, bid_avg: {bid_avg}, min_bid: {min_bid}, max_bid: {max_bid}, min_duration: {min_duration}, max_duration: {max_duration}")
-            # break
             if project_id_exists(str(data["id"])):
                 print(f"duplicate id, skipping project with id {data['id']}")
+                continue
+
+            time_submitted = data["time_submitted"]
+            budget_min = data["budget_min"]
+            budget_max = data["budget_max"]
+            bid_avg = data["bid_avg"]
+            bid_status = data["status"]
+            currency_exchange_rate = data["currency_exchange_rate"]
+            
+            time_submitted_dt = datetime.fromisoformat(data["time_submitted"])
+            now = datetime.now(timezone.utc)
+            if now - time_submitted_dt >= timedelta(hours=look_back_hours):
+                print(f"Project {data['id']} is older than {look_back_hours} hours, skipping...")
+                store_project_keys(str(data['id']))
+                time.sleep(sleep_time)
+                continue
+            if bid_status != "active":
+                print(f"Project {data['id']} is not active, skipping...")
+                store_project_keys(str(data['id']))
+                time.sleep(sleep_time)
                 continue
 
             # AI prompt
@@ -168,16 +171,37 @@ while True:
             
             proposal = send_ai_request(prompt)
             if proposal:
-                print(f"Project ID: {data['id']}")
-                print(f"Proposal:\n{proposal}\n")
-                response = place_project_bid(session=session, project_id=data["id"], description=proposal, amount=data["bid_avg"], bid_period=7, )
-                if response:
-                    print(f"Bid placed successfully for Project ID: {data['id']}")
+                # budget_min_usd = budget_min * currency_exchange_rate
+                # budget_max_usd = budget_max * currency_exchange_rate
+                bid_avg_usd = bid_avg * currency_exchange_rate
+                amount_usd = round(bid_avg_usd * 0.9)
+                if amount_usd < min_bid_amount_usd:
+                    print(f"Bid amount {amount_usd} is less than minimum allowed {min_bid_amount_usd}, skipping project {data['id']}")
+                    amount = min_bid_amount_usd / currency_exchange_rate
+                else:
+                    amount = amount_usd / currency_exchange_rate
+                
+                bid_data = {
+                    'project_id': int(data["id"]),
+                    'bidder_id': user_id,
+                    'amount': amount,
+                    'period': 3,
+                    'milestone_percentage': 100,
+                    'description': proposal,
+                }
+                try:
+                    response = place_project_bid(session=session, **bid_data)
                     store_project_keys(str(data['id']))
+                except BidNotPlacedException as e:
+                    # print(('Error message: %s' % e.message))
+                    print(('Bid not placed. Error code: %s' % e.error_code))
+                    continue
             else:
                 print(f"Failed to generate proposal for Project ID: {data['id']}")
-            time.sleep(5)    
-        
+            time.sleep(sleep_time)
+
+    except BidNotPlacedException as e:
+        print(f"Bid not placed: {e}")
     except Exception as e:
         print(f"Error processing projects: {e}")
         break
