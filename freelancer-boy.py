@@ -26,7 +26,6 @@ load_dotenv()
 token = os.getenv("PRODUCTION")
 base_url = os.getenv("PRODUCTION_URL")
 project_number = os.getenv("PROJECT_NUMBER")
-memory_file = os.getenv("MEMORY_FILE")
 look_back_hours = int(os.getenv("LOOK_BACK_HOURS", 1))
 exhaustion_sleep_time = int(os.getenv("BID_EXHAUSTED_SLEEP_TIME", 1))
 telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -70,7 +69,7 @@ def project_id_exists(project_id):
     return c.fetchone() is not None
 
 def store_project_keys(project_id):
-    c.execute("INSERT INTO keys (project_id) VALUES (?)", 
+    c.execute("INSERT INTO keys (project_id) VALUES (?)",
             (project_id,))
     conn.commit()
 
@@ -166,6 +165,14 @@ try:
                     time.sleep(sleep_time)
                     continue
             try:
+                try:
+                    interruptible_sleep(
+                        hours=0.4,
+                        check_interval=1,
+                        shut_down_flag=lambda: shutdown_flag
+                    )
+                except KeyboardInterrupt:
+                    break
                 response = search_projects(
                     session=session,
                     query=None,
@@ -176,7 +183,18 @@ try:
                     active_only=True
                 )
             except ProjectsNotFoundException as e:
-                print('Server response: {}'.format(str(e)))
+                if str(e) == "You have made too many of these requests":
+                    print("You have made too many of these requests")
+                    try:
+                        interruptible_sleep(
+                            hours=0.4,
+                            check_interval=1,
+                            shut_down_flag=lambda: shutdown_flag
+                        )
+                    except KeyboardInterrupt:
+                        break
+                else:
+                    print('Server response: {}'.format(str(e)))
                 time.sleep(sleep_time)
                 continue
 
@@ -207,7 +225,7 @@ try:
                 bid_avg = data["bid_avg"]
                 bid_status = data["status"]
                 currency_exchange_rate = data["currency_exchange_rate"]
-                
+
                 time_submitted_dt = datetime.fromisoformat(data["time_submitted"])
                 now = datetime.now(timezone.utc)
                 if now - time_submitted_dt >= timedelta(hours=look_back_hours):
@@ -242,14 +260,12 @@ try:
                     - Don't use exclamation marks, emojis or Best regards [Your Name]
                     - use Thanks at the end
                     """
-                
+
                 proposal = send_ai_request(prompt)
                 if proposal:
-                    # budget_min_usd = budget_min * currency_exchange_rate
-                    # budget_max_usd = budget_max * currency_exchange_rate
-                    # bid_avg_usd = bid_avg * currency_exchange_rate
-                    # amount_usd = round(bid_avg_usd * bid_avg_percent)
-                    amount = budget_min
+                    amount = round(float(budget_max) * float(bid_avg_percent))
+                    if amount < float(budget_min):
+                        amount = float(budget_min)
                     bid_data = {
                         'project_id': int(data["id"]),
                         'bidder_id': user_id,
@@ -259,6 +275,14 @@ try:
                         'description': proposal,
                     }
                     try:
+                        try:
+                            interruptible_sleep(
+                                hours=0.03,
+                                check_interval=1,
+                                shut_down_flag=lambda: shutdown_flag
+                            )
+                        except KeyboardInterrupt:
+                            break
                         response = place_project_bid(session=session, **bid_data)
                         store_project_keys(str(data['id']))
                         send_telegram_message(str(data["title"]), "proposal", proposal, data["seo_url"])
@@ -280,6 +304,8 @@ try:
                             send_telegram_message(str(data["title"]), "nda", proposal, data["seo_url"])
                             store_project_keys(str(data['id']))
                             continue
+                        else:
+                            print('Server response: {}'.format(str(e)))
                 else:
                     print(f"Failed to generate proposal for Project ID: {data['id']}, sleeping for {exhaustion_sleep_time} hour(s)")
                     send_telegram_message(str(data["title"]), "gen_proposal", proposal, data["seo_url"])
