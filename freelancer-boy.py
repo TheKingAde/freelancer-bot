@@ -210,6 +210,14 @@ try:
                     time.sleep(sleep_time)
                     continue
             try:
+                try:
+                    interruptible_sleep(
+                        hours=0.25,
+                        check_interval=1,
+                        shut_down_flag=lambda: shutdown_flag
+                    )
+                except KeyboardInterrupt:
+                    break
                 response = search_projects(
                     session=session,
                     query=None,
