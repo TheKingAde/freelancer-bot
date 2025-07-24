@@ -115,10 +115,19 @@ def send_telegram_message(project_title, msg_type, proposal, seo_url):
             f"Action taken: <b> sleeping for {exhaustion_sleep_time}</b>\n"
         )
     if msg_type == "error":
-        msg_seo_url = f"https://www.freelancer.com/projects/{seo_url}/details"
+        if seo_url != "":
+            msg_seo_url = f"https://www.freelancer.com/projects/{seo_url}/details"
+        else:
+            msg_seo_url = "https://www.freelancer.com"
+        error_message_title = "An error occurred" if seo_url == "" else "Failed to send proposal"
+        error_message = "Error message" if seo_url == "" else "Proposal"
+        if isinstance(project_title, dict):
+            title_line = f"{error_message}: <b>{project_title.get('title')} (${project_title.get('amount')})</b>\n"
+        else:
+            title_line = f"{error_message}: <b>{project_title}</b>\n"
         message = (
-            f"🚨 <b>An error occurred</b>\n\n"
-            f"Error message: <b>{project_title}</b>\n"
+            f"🚨 <b>{error_message_title}</b>\n\n"
+            f"{title_line}"
             f"<a href='{msg_seo_url}'>View Project on Freelancer</a>\n"
             f"Proposal: {proposal}"
         )
@@ -300,12 +309,20 @@ try:
                             store_project_keys(str(data['id']))
                             continue
                         if str(e) == "You must sign the NDA before you can bid on this project.":
-                            send_telegram_message(str(data["title"]), "nda", proposal, data["seo_url"])
+                            proposal_data = {
+                                'title': data["title"],
+                                'amount': amount,
+                            }
+                            send_telegram_message(proposal_data, "nda", proposal, data["seo_url"])
                             store_project_keys(str(data['id']))
                             continue
                         else:
                             print('Server response: {}'.format(str(e)))
-                            send_telegram_message(str(data["title"]), "error", proposal, data["seo_url"] or "")
+                            proposal_data = {
+                                'title': data["title"],
+                                'amount': amount,
+                            }
+                            send_telegram_message(proposal_data, "error", proposal, data["seo_url"] or "")
                             store_project_keys(str(data['id']))
                             continue
                 else:
