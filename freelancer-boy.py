@@ -113,9 +113,15 @@ def send_telegram_message(project_title, msg_type, proposal, seo_url):
         message = (
             f"🚨 <b>Proposal generation Failed</b>\n\n"
             f"Action taken: <b> sleeping for {exhaustion_sleep_time}</b>\n"
-            f"<a href='{msg_seo_url}'>View Project on Freelancer</a>\n"
         )
-
+    if msg_type == "error":
+        msg_seo_url = f"https://www.freelancer.com/projects/{seo_url}/details"
+        message = (
+            f"🚨 <b>An error occurred</b>\n\n"
+            f"Error message: <b>{project_title}</b>\n"
+            f"<a href='{msg_seo_url}'>View Project on Freelancer</a>\n"
+            f"Proposal: {proposal}"
+        )
     payload = {
         "chat_id": telegram_chatid,
         "text": message,
@@ -165,14 +171,6 @@ try:
                     time.sleep(sleep_time)
                     continue
             try:
-                try:
-                    interruptible_sleep(
-                        hours=0.4,
-                        check_interval=1,
-                        shut_down_flag=lambda: shutdown_flag
-                    )
-                except KeyboardInterrupt:
-                    break
                 response = search_projects(
                     session=session,
                     query=None,
@@ -195,6 +193,7 @@ try:
                         break
                 else:
                     print('Server response: {}'.format(str(e)))
+                    send_telegram_message(str(e), "error", proposal="", seo_url="")
                 time.sleep(sleep_time)
                 continue
 
@@ -306,6 +305,9 @@ try:
                             continue
                         else:
                             print('Server response: {}'.format(str(e)))
+                            send_telegram_message(str(data["title"]), "error", proposal, data["seo_url"] or "")
+                            store_project_keys(str(data['id']))
+                            continue
                 else:
                     print(f"Failed to generate proposal for Project ID: {data['id']}, sleeping for {exhaustion_sleep_time} hour(s)")
                     send_telegram_message(str(data["title"]), "gen_proposal", proposal, data["seo_url"])
