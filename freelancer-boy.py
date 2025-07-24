@@ -13,6 +13,7 @@ import datetime
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 import os
+import re
 import json
 import g4f
 import time
@@ -73,24 +74,53 @@ def store_project_keys(project_id):
             (project_id,))
     conn.commit()
 
+failed_ai_chats = set()
+ai_chat_to_use = 0
 def send_ai_request(prompt):
-    for ai_chat in ai_chats:
+    global ai_chat_to_use, failed_ai_chats
+
+    total_chats = len(ai_chats)
+    attempts = 0
+
+    while attempts < total_chats:
+        current_chat = ai_chats[ai_chat_to_use]
+        if ai_chat_to_use in failed_ai_chats:
+            ai_chat_to_use = (ai_chat_to_use + 1) % total_chats
+            attempts += 1
+            continue
+
         time.sleep(sleep_time)
         try:
-            # print(f"--- Trying {ai_chat['label']} ---")
             kwargs = {
-                "provider": ai_chat["provider"],
+                "provider": current_chat["provider"],
                 "messages": [{"role": "user", "content": prompt}]
             }
-            if ai_chat["model"]:
-                kwargs["model"] = ai_chat["model"]
+            if current_chat["model"]:
+                kwargs["model"] = current_chat["model"]
 
             response = g4f.ChatCompletion.create(**kwargs)
 
-            if response and isinstance(response, str) and response.strip():
-                return response # Stop once a valid response is received
-        except Exception as e:
-            return None
+            if (
+                response
+                and isinstance(response, str)
+                and response.strip()
+                and re.match(r"(?i)^hello(,|\s|\n|$)", response.strip())
+            ):
+                return response
+
+            # If response is invalid, consider it a failure
+            failed_ai_chats.add(ai_chat_to_use)
+            ai_chat_to_use = (ai_chat_to_use + 1) % total_chats
+            attempts += 1
+
+        except Exception:
+            failed_ai_chats.add(ai_chat_to_use)
+            ai_chat_to_use = (ai_chat_to_use + 1) % total_chats
+            attempts += 1
+
+    # All failed, reset and start over next time
+    failed_ai_chats.clear()
+    return False
 
 def send_telegram_message(project_title, msg_type, proposal, seo_url):
     url = f"https://api.telegram.org/bot{telegram_bot_token}/sendMessage"
@@ -135,7 +165,7 @@ def send_telegram_message(project_title, msg_type, proposal, seo_url):
         "chat_id": telegram_chatid,
         "text": message,
         "parse_mode": "HTML",
-        "disable_web_page_preview": True  # Optional: avoids showing link preview
+        "disable_web_page_preview": True  
     }
 
     response = requests.post(url, data=payload)
@@ -246,6 +276,10 @@ try:
                     store_project_keys(str(data['id']))
                     time.sleep(sleep_time)
                     continue
+                if budget_max is None or budget_min is None:
+                    print(f"⚠️ Project {data['id']} has missing budget info, skipping...")
+                    store_project_keys(str(data['id']))
+                    continue
 
                 # AI prompt
                 prompt = f"""
@@ -270,7 +304,7 @@ try:
                     """
 
                 proposal = send_ai_request(prompt)
-                if proposal:
+                if proposal != False:
                     amount = round(float(budget_max) * float(bid_avg_percent))
                     if amount < float(budget_min):
                         amount = float(budget_min)
@@ -327,6 +361,7 @@ try:
                             continue
                 else:
                     print(f"Failed to generate proposal for Project ID: {data['id']}, sleeping for {exhaustion_sleep_time} hour(s)")
+                    proposal="N/A"
                     send_telegram_message(str(data["title"]), "gen_proposal", proposal, data["seo_url"])
                     try:
                         interruptible_sleep(
