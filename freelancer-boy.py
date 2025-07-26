@@ -38,7 +38,7 @@ id_flag=True
 shutdown_flag=False
 sleep_time = 3
 search_filter = create_search_projects_filter(
-        jobs=[344,1384,2623,148,2323,3111,1824]
+        jobs=[344,2623,148,2323,3111,1824]
     )
 project_detail = {
     "full_description": True,
@@ -134,10 +134,12 @@ def send_telegram_message(project_title, msg_type, proposal, seo_url):
             f"Proposal: {proposal}"
         )
     if msg_type == "proposal":
+        msg_seo_url = f"https://www.freelancer.com/projects/{seo_url}/details"
         message = (
             f"✅ <b>Proposal sent</b>\n\n"
             f"Project: <b>{project_title}</b>\n"
-            f"Proposal: {proposal}"
+            f"Proposal: {proposal}\n\n"
+            f"<a href='{msg_seo_url}'>View Project on Freelancer</a>\n"
         )
     if msg_type == "gen_proposal":
         message = (
@@ -149,7 +151,7 @@ def send_telegram_message(project_title, msg_type, proposal, seo_url):
             msg_seo_url = f"https://www.freelancer.com/projects/{seo_url}/details"
         else:
             msg_seo_url = "https://www.freelancer.com"
-        error_message_title = "An error occurred" if seo_url == "" else "Failed to send proposal"
+        error_message_title = "An error occurred" if seo_url == "" else "Failed to send proposal: <b>{project_title.get('error_message')}"
         error_message = "Error message" if seo_url == "" else "Proposal"
         if isinstance(project_title, dict):
             title_line = f"{error_message}: <b>{project_title.get('title')} (${project_title.get('amount')})</b>\n"
@@ -165,7 +167,7 @@ def send_telegram_message(project_title, msg_type, proposal, seo_url):
         "chat_id": telegram_chatid,
         "text": message,
         "parse_mode": "HTML",
-        "disable_web_page_preview": True  
+        "disable_web_page_preview": True
     }
 
     response = requests.post(url, data=payload)
@@ -363,6 +365,7 @@ try:
                             proposal_data = {
                                 'title': data["title"],
                                 'amount': amount,
+                                'error_message': str(e)
                             }
                             send_telegram_message(proposal_data, "error", proposal, data["seo_url"] or "")
                             store_project_keys(str(data['id']))
