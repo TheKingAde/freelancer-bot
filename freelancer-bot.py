@@ -38,7 +38,7 @@ id_flag=True
 shutdown_flag=False
 sleep_time = 3
 search_filter = create_search_projects_filter(
-        jobs=[344,2623,148,2323,3111,1824]
+        jobs=[1384,2996,344,2623,148,2323,3111,1824]
     )
 project_detail = {
     "full_description": True,
@@ -151,7 +151,7 @@ def send_telegram_message(project_title, msg_type, proposal, seo_url):
             msg_seo_url = f"https://www.freelancer.com/projects/{seo_url}/details"
         else:
             msg_seo_url = "https://www.freelancer.com"
-        error_message_title = "An error occurred" if seo_url == "" else "Failed to send proposal: <b>{project_title.get('error_message')}"
+        error_message_title = "An error occurred" if seo_url == "" else "Failed to send proposal: <b>{project_title.get('error_message')}</b>"
         error_message = "Error message" if seo_url == "" else "Proposal"
         if isinstance(project_title, dict):
             title_line = f"{error_message}: <b>{project_title.get('title')} (${project_title.get('amount')})</b>\n"
